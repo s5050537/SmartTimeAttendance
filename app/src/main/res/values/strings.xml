@@ -1,0 +1,42 @@
+<resources>
+    <string name="app_name">Smart Time Attendance</string>
+
+    <string name="login_error_message">
+        กรุณาใส่ ชื่อผู้ใช้ และ รหัสผ่าน ให้ครบ
+    </string>
+    <string name="login_error_title">ข้อผิดพลาด</string>
+    <string name="login">ลงชื่อเข้าใช้</string>
+    <string name="logout">ลงชื่อออก</string>
+    <string name="username">รหัสผู้ใช้</string>
+    <string name="password">รหัสผ่าน</string>
+    <string name="password_1">รหัสผ่าน(1)</string>
+    <string name="password_2">รหัสผ่าน(2)</string>
+    <string name="wrong_user_pass">รหัสผู้ใช้ หรือ รหัสผ่าน ไม่ถูกต้อง</string>
+    <string name="next">ต่อไป</string>
+    <string name="exit">ออก</string>
+    <string name="error">ข้อผิดพลาด</string>
+    <string name="save_success">บันทึกข้อมูลสำเร็จ</string>
+    <string name="save_error">ไม่สามารถบันทึกข้อมูลได้</string>
+    <string name="network_error">เครือข่ายล้มเหลว กรุณาลองอีกครั้ง</string>
+    <string name="submit_step_0">ยืนยัน (0/2)</string>
+    <string name="submit_step_1">ยืนยัน (1/2)</string>
+    <string name="submit">ยืนยัน</string>
+    <string name="refresh">ลองใหม่</string>
+    <string name="delete">ลบ</string>
+
+    <string name="clock_in">ลงเวลาทำงาน</string>
+    <string name="find_location">ค้นหาตำแหน่ง</string>
+    <string name="take_picture">ถ่ายรูป</string>
+
+    <string name="ok">ตกลง</string>
+    <string name="login_button">เข้าสู่ระบบ</string>
+
+    <string name="change_password">เปลี่ยนรหัสผ่าน</string>
+    <string name="welcome">ยินดีต้อนรับ</string>
+    <string name="full_name">ชื่อผู้ใช้</string>
+    <string name="date_time">วันที่ - เวลา</string>
+    <string name="branch">หน่วยงาน</string>
+    <string name="exit_app">ออกจากแอพ</string>
+    <string name="change_password_error">เปลี่ยนรหัสผ่านไม่สำเร็จ ติดต่อสนง.ใหญ่</string>
+    <string name="password_not_match">รหัสผ่านไม่ตรงกัน หรือ ไม่ถูกต้อง</string>
+</resources>
