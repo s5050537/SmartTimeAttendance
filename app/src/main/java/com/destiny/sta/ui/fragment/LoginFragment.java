@@ -112,24 +112,22 @@ public class LoginFragment extends FragmentBase {
                         public void onResponse(Call<LoginResponse> call, final Response<LoginResponse> response) {
                             dismissLoadingDialog();
 
-                            if (response.code() == 200) {
-                                if (response.body() != null) {
-                                    loginCallback.loginSuccess(response.body());
+                            if (response.code() == 200 && response.body() != null) {
+                                loginCallback.loginSuccess(response.body());
 
-                                    Fragment fragment;
+                                Fragment fragment;
 
-                                    String password = response.body().getPassword();
-                                    if (password != null) {
-                                        fragment = new WelcomeFragment();
-                                    } else {
-                                        fragment = new PasswordChangerFragment();
-                                    }
-
-                                    getActivity().getSupportFragmentManager()
-                                            .beginTransaction()
-                                            .replace(R.id.content_frame, fragment)
-                                            .commit();
+                                String password = response.body().getPassword();
+                                if (password != null) {
+                                    fragment = new WelcomeFragment();
+                                } else {
+                                    fragment = new PasswordChangerFragment();
                                 }
+
+                                getActivity().getSupportFragmentManager()
+                                        .beginTransaction()
+                                        .replace(R.id.content_frame, fragment)
+                                        .commit();
                             } else if (response.code() == 401) {
                                 AlertDialog.Builder builder = new AlertDialog.Builder(getActivity());
                                 builder.setMessage(R.string.wrong_user_pass)
