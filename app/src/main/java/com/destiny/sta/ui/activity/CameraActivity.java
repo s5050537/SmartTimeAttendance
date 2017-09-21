@@ -38,7 +38,6 @@ public class CameraActivity extends AppCompatActivity implements SurfaceHolder.C
 
     private static final String TAG = CameraActivity.class.getSimpleName();
 
-//    private Button buttonClick;
     private Camera camera;
     private Camera.CameraInfo info;
     private Camera.Parameters parameters;
@@ -70,7 +69,7 @@ public class CameraActivity extends AppCompatActivity implements SurfaceHolder.C
     @Override
     protected void onResume() {
         super.onResume();
-        if(holder != null) {
+        if (holder != null) {
             openCamera();
         }
     }
@@ -82,7 +81,7 @@ public class CameraActivity extends AppCompatActivity implements SurfaceHolder.C
     }
 
     private void openCamera() {
-        if(camera == null) {
+        if (camera == null) {
             int cameraCount = Camera.getNumberOfCameras();
             if (cameraCount > 0) {
                 try {
@@ -123,12 +122,12 @@ public class CameraActivity extends AppCompatActivity implements SurfaceHolder.C
     }
 
     private void configCamera() {
-        setDisplayOrientation();
-        setImageRotation();
+        setPreviewOrientation();
+        setCameraRotation();
         setAutoFocusMode();
     }
 
-    private void setDisplayOrientation() {
+    private void setPreviewOrientation() {
         int rotation = getWindowManager().getDefaultDisplay().getRotation();
         int degrees = 0;
         switch (rotation) {
@@ -156,7 +155,7 @@ public class CameraActivity extends AppCompatActivity implements SurfaceHolder.C
         camera.setDisplayOrientation(result);
     }
 
-    private void setImageRotation() {
+    private void setCameraRotation() {
         parameters.setRotation(info.orientation);
         camera.setParameters(parameters);
     }
@@ -171,21 +170,17 @@ public class CameraActivity extends AppCompatActivity implements SurfaceHolder.C
         }
     }
 
-//    private void resetCamera() {
-//        camera.stopPreview();
-//        camera.startPreview();
-//    }
-
     private void startPreview() {
         Camera.Size previewSize;
+        List<Camera.Size> supportPreviewSizes = parameters.getSupportedPreviewSizes();
 
         // We fit the aspect ratio of TextureView to the size of preview we picked.
         int orientation = getResources().getConfiguration().orientation;
         if (orientation == Configuration.ORIENTATION_LANDSCAPE) {
-            previewSize = getOptimalPreviewSize(parameters.getSupportedPreviewSizes(), previewWidth, previewHeight);
+            previewSize = getOptimalPreviewSize(supportPreviewSizes, previewWidth, previewHeight);
             preview.setAspectRatio(previewSize.width, previewSize.height);
         } else {
-            previewSize = getOptimalPreviewSize(parameters.getSupportedPreviewSizes(), previewHeight, previewWidth);
+            previewSize = getOptimalPreviewSize(supportPreviewSizes, previewHeight, previewWidth);
             preview.setAspectRatio(previewSize.height, previewSize.width);
         }
 
@@ -232,8 +227,20 @@ public class CameraActivity extends AppCompatActivity implements SurfaceHolder.C
         public void onPictureTaken(byte[] data, Camera camera) {
             preview.setOnClickListener(null);
 
-            deleteAllFiles();
-            new SaveImageTask().execute(data);
+            String storagePath = getExternalFilesDir(Environment.DIRECTORY_PICTURES).getAbsolutePath();
+            SaveImageTask saveImageTask = new SaveImageTask();
+            saveImageTask.setListener(new SaveImageTask.OnSaveListener() {
+                @Override
+                public void onComplete(String imagePath) {
+                    if(imagePath != null) {
+                        Intent intent = new Intent();
+                        intent.putExtra("image_path", imagePath);
+                        setResult(Activity.RESULT_OK, intent);
+                        finish();
+                    }
+                }
+            });
+            saveImageTask.execute(storagePath.getBytes(), data);
             Log.d(TAG, "onPictureTaken - jpeg");
         }
     };
@@ -285,32 +292,6 @@ public class CameraActivity extends AppCompatActivity implements SurfaceHolder.C
         return optimalSize;
     }
 
-    private File createImageFile() throws IOException {
-        // Create an image file name
-        String timeStamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date());
-        String imageFileName = "JPEG_" + timeStamp + "_";
-        File storageDir = getExternalFilesDir(Environment.DIRECTORY_PICTURES);
-        File image = File.createTempFile(
-                imageFileName,  /* prefix */
-                ".jpg",         /* suffix */
-                storageDir      /* directory */
-        );
-
-        // Save a file: path for use with ACTION_VIEW intents
-        //currentImagePath = image.getAbsolutePath();
-        return image;
-    }
-
-    private void deleteAllFiles() {
-        File dir = getExternalFilesDir(Environment.DIRECTORY_PICTURES);
-        if (dir != null && dir.isDirectory()) {
-            String[] children = dir.list();
-            for (int i = 0; i < children.length; i++) {
-                new File(dir, children[i]).delete();
-            }
-        }
-    }
-
     @Override
     public void onBackPressed() {
         super.onBackPressed();
@@ -320,9 +301,8 @@ public class CameraActivity extends AppCompatActivity implements SurfaceHolder.C
     @Override
     public void surfaceChanged(SurfaceHolder surfaceHolder, int i, int width, int height) {
         holder = surfaceHolder;
-        //Log.v(TAG, "preview width: " + width + " height: " + height);
 
-        if(previewWidth == 0 && previewHeight == 0) {
+        if (previewWidth == 0 && previewHeight == 0) {
             previewWidth = width;
             previewHeight = height;
 
@@ -338,38 +318,87 @@ public class CameraActivity extends AppCompatActivity implements SurfaceHolder.C
 
     public void surfaceDestroyed(SurfaceHolder surfaceHolder) {
         holder = null;
-//        previewWidth = 0;
-//        previewHeight = 0;
 
         closeCamera();
     }
 
-    private class SaveImageTask extends AsyncTask<byte[], Void, Void> {
-        @Override
-        protected Void doInBackground(byte[]... data) {
-            FileOutputStream outStream;
+    private static class SaveImageTask extends AsyncTask<byte[], Void, String> {
 
+        interface OnSaveListener {
+            void onComplete(String imagePath);
+        }
+
+        OnSaveListener listener = null;
+
+        @Override
+        protected String doInBackground(byte[]... data) {
+            File storageDir = new File(String.valueOf(data[0]));
+
+            deleteAllFiles(storageDir);
+
+            FileOutputStream outStream = null;
+            File outFile = null;
             try {
-                File outFile = createImageFile();
+                outFile = createImageFile(storageDir);
 
                 outStream = new FileOutputStream(outFile);
-                outStream.write(data[0]);
+                outStream.write(data[1]);
                 outStream.flush();
-                outStream.close();
+//                outStream.close();
 
                 Log.d(TAG, "onPictureTaken - wrote bytes: " + data.length + " to " + outFile.getAbsolutePath());
-
-                //refreshGallery(outFile);
-
-                Intent intent = new Intent();
-                intent.putExtra("image_path", outFile.getAbsolutePath());
-                setResult(Activity.RESULT_OK, intent);
-                finish();
             } catch (IOException e) {
                 e.printStackTrace();
+            } finally {
+                if(outStream != null)
+                    try {
+                        outStream.close();
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
             }
 
-            return null;
+            return outFile != null? outFile.getAbsolutePath() : null;
+        }
+
+        @Override
+        protected void onPostExecute(String imagePath) {
+            notifyListener(imagePath);
+        }
+
+        private void notifyListener(String imagePath) {
+            if(listener != null) {
+                listener.onComplete(imagePath);
+            }
+        }
+
+        void setListener(OnSaveListener listener) {
+            this.listener = listener;
+        }
+
+        private File createImageFile(File storageDir) throws IOException {
+            // Create an image file name
+            String timeStamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date());
+            String imageFileName = "JPEG_" + timeStamp + "_";
+//            File storageDir = getExternalFilesDir(Environment.DIRECTORY_PICTURES);
+            return File.createTempFile(
+                    imageFileName,  /* prefix */
+                    ".jpg",         /* suffix */
+                    storageDir      /* directory */
+            );
+        }
+
+        private void deleteAllFiles(File storageDir) {
+//            File storageDir = getExternalFilesDir(Environment.DIRECTORY_PICTURES);
+            if (storageDir != null && storageDir.isDirectory()) {
+//                String[] children = dir.list();
+//                for (int i = 0; i < children.length; i++) {
+//                    new File(dir, children[i]).delete();
+//                }
+                for (String child : storageDir.list()) {
+                    boolean deleted = new File(storageDir, child).delete();
+                }
+            }
         }
     }
 

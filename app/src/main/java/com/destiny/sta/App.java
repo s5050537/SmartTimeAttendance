@@ -19,12 +19,4 @@ public class App extends Application {
                 .build()
         );
     }
-
-    public void setUser() {
-
-    }
-
-    public void getUser() {
-
-    }
 }
