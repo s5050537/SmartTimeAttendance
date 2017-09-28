@@ -59,6 +59,8 @@ public class MapFragment extends Fragment implements OnMapReadyCallback {
 
     public static final int PERMISSIONS_REQUEST_LOCATION = 1;
 
+    private static final int MAX_DISTANCE = 20;
+
     public interface LocationCallback {
         void onLocationUpdated(Location location);
     }
@@ -263,14 +265,14 @@ public class MapFragment extends Fragment implements OnMapReadyCallback {
 
                             Circle circle = googleMap.addCircle(new CircleOptions()
                                     .center(new LatLng(branchLatitude, branchLongitude))
-                                    .radius(100)
+                                    .radius(MAX_DISTANCE)
                                     .strokeColor(Color.TRANSPARENT)
                                     .fillColor(Color.GRAY));
 
                             PolylineOptions line =
                                     new PolylineOptions().add(currentLatLng,
                                             new LatLng(branchLatitude, branchLongitude))
-                                            .width(3).color(Color.RED);
+                                            .width(4).color(Color.RED);
 
                             googleMap.addPolyline(line);
 
@@ -278,12 +280,12 @@ public class MapFragment extends Fragment implements OnMapReadyCallback {
                             Location.distanceBetween(location.getLatitude(), location.getLongitude(),
                                     branchLatitude, branchLongitude, results);
 
-//                            if(results[0] <= 100) {
-//                                if (!submitButton.isEnabled()) submitButton.setEnabled(true);
-//                            } else {
-//                                if (submitButton.isEnabled()) submitButton.setEnabled(false);
-//                            }
-                            if (!submitButton.isEnabled()) submitButton.setEnabled(true);
+                            if (results[0] <= MAX_DISTANCE) {
+                                if (!submitButton.isEnabled()) submitButton.setEnabled(true);
+                            } else {
+                                if (submitButton.isEnabled()) submitButton.setEnabled(false);
+                            }
+//                            if (!submitButton.isEnabled()) submitButton.setEnabled(true);
                         }
                     }
                 });

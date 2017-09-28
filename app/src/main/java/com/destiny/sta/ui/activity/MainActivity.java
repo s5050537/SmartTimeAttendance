@@ -1,16 +1,17 @@
 package com.destiny.sta.ui.activity;
 
 import android.content.DialogInterface;
-import android.content.Intent;
 import android.location.Location;
 import android.os.Bundle;
-import android.os.PersistableBundle;
+import android.os.Handler;
+import android.os.SystemClock;
 import android.support.annotation.Nullable;
 import android.support.v4.app.DialogFragment;
 import android.support.v4.app.Fragment;
 import android.support.v7.app.AlertDialog;
 import android.support.v7.app.AppCompatActivity;
-import android.widget.Toast;
+import android.util.Log;
+import android.view.MotionEvent;
 
 import com.destiny.sta.R;
 import com.destiny.sta.ServiceGenerator;
@@ -33,8 +34,6 @@ import retrofit2.Call;
 import retrofit2.Callback;
 import retrofit2.Response;
 
-import static com.destiny.sta.ui.fragment.PictureFragment.REQUEST_IMAGE_CAPTURE;
-
 /**
  * Created by Destiny on 7/11/2017.
  */
@@ -47,7 +46,10 @@ public class MainActivity extends AppCompatActivity implements MapFragment.Locat
     private Location location = null;
     private String imagePath = null;
 
-    private long pauseTime = 0;
+    public static final String timer = "timer";
+    private long inactiveTime = 0;
+    public static long TIME_LIMIT = 60000;
+    private Handler handler;
 
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
@@ -58,9 +60,9 @@ public class MainActivity extends AppCompatActivity implements MapFragment.Locat
             redirectToLogin();
 //            Intent intent = new Intent(this, CameraActivity.class);
 //            startActivityForResult(intent, REQUEST_IMAGE_CAPTURE);
-        } else {
-
         }
+
+        handler = new Handler();
     }
 
     @Override
@@ -71,28 +73,49 @@ public class MainActivity extends AppCompatActivity implements MapFragment.Locat
     @Override
     protected void onResume() {
         super.onResume();
+        startTimer();
     }
 
     @Override
     protected void onPause() {
         super.onPause();
-
-        pauseTime = System.currentTimeMillis();
+        stopTimer();
     }
 
-//    private void handleLeftUnfinished(Bundle savedInstanceState) {
-//        long currentTime = System.currentTimeMillis();
-//        if(savedInstanceState != null) {
-//            pauseTime = savedInstanceState.getLong("time_millis");
-//        }
-//
-//        if(pauseTime != 0) {
-//            long durationInSeconds = (currentTime - pauseTime) / 1000;
-//            if (durationInSeconds > 45) {
-//                redirectToLogin();
-//            }
-//        }
-//    }
+    @Override
+    public boolean dispatchTouchEvent(MotionEvent ev) {
+        if (ev.getAction() == MotionEvent.ACTION_UP) {
+            stopTimer();
+            startTimer();
+        }
+
+        return super.dispatchTouchEvent(ev);
+    }
+
+    private void startTimer() {
+        if (inactiveTime != 0) {
+            long now = System.currentTimeMillis();
+            Log.v("MainActivity", "time limit: " + TIME_LIMIT);
+            Log.v("MainActivity", "duration: " + (now - inactiveTime));
+            if (now - inactiveTime > TIME_LIMIT) {
+                redirectToLogin();
+            } else {
+                TIME_LIMIT = 60000;
+            }
+        }
+
+        inactiveTime = System.currentTimeMillis();
+        handler.postAtTime(new Runnable() {
+            @Override
+            public void run() {
+                redirectToLogin();
+            }
+        }, timer, SystemClock.uptimeMillis() + TIME_LIMIT);
+    }
+
+    private void stopTimer() {
+        handler.removeCallbacksAndMessages(timer);
+    }
 
     private void redirectToLogin() {
         getSupportFragmentManager()

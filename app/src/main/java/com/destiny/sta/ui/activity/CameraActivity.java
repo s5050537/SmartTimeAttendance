@@ -2,12 +2,14 @@ package com.destiny.sta.ui.activity;
 
 import android.app.Activity;
 import android.content.res.Configuration;
-import android.net.Uri;
+import android.os.Handler;
+import android.os.SystemClock;
 import android.support.v7.app.AppCompatActivity;
 
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.UnsupportedEncodingException;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.List;
@@ -21,6 +23,7 @@ import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.Environment;
 import android.util.Log;
+import android.view.MotionEvent;
 import android.view.Surface;
 import android.view.SurfaceHolder;
 import android.view.View;
@@ -29,6 +32,9 @@ import android.view.WindowManager;
 
 import com.destiny.sta.R;
 import com.destiny.sta.view.Preview;
+
+import static com.destiny.sta.ui.activity.MainActivity.TIME_LIMIT;
+import static com.destiny.sta.ui.activity.MainActivity.timer;
 
 /**
  * Created by Bobo on 8/29/2017.
@@ -44,9 +50,13 @@ public class CameraActivity extends AppCompatActivity implements SurfaceHolder.C
 
     private Preview preview;
     private SurfaceHolder holder;
-
     private int previewWidth = 0;
     private int previewHeight = 0;
+
+    private SaveImageTask saveImageTask = null;
+
+    private long inactiveTime = 0;
+    private Handler handler;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -64,6 +74,7 @@ public class CameraActivity extends AppCompatActivity implements SurfaceHolder.C
 //        preview.setLayoutParams(new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT));
 //        preview.setKeepScreenOn(true);
 
+        handler = new Handler();
     }
 
     @Override
@@ -72,12 +83,53 @@ public class CameraActivity extends AppCompatActivity implements SurfaceHolder.C
         if (holder != null) {
             openCamera();
         }
+
+        startTimer();
     }
 
     @Override
     protected void onPause() {
         super.onPause();
         closeCamera();
+
+        if (saveImageTask != null) {
+            saveImageTask.setListener(null);
+        }
+
+        stopTimer();
+    }
+
+    private void startTimer() {
+        if (inactiveTime != 0) {
+            long now = System.currentTimeMillis();
+            if (now - inactiveTime > TIME_LIMIT) {
+                setResult(Activity.RESULT_CANCELED);
+                finish();
+            }
+        }
+
+        inactiveTime = System.currentTimeMillis();
+        handler.postAtTime(new Runnable() {
+            @Override
+            public void run() {
+                setResult(Activity.RESULT_CANCELED);
+                finish();
+            }
+        }, timer, SystemClock.uptimeMillis() + TIME_LIMIT);
+    }
+
+    private void stopTimer() {
+        handler.removeCallbacksAndMessages(timer);
+    }
+
+    @Override
+    public boolean dispatchTouchEvent(MotionEvent ev) {
+        if (ev.getAction() == MotionEvent.ACTION_UP) {
+            stopTimer();
+            startTimer();
+        }
+
+        return super.dispatchTouchEvent(ev);
     }
 
     private void openCamera() {
@@ -97,13 +149,6 @@ public class CameraActivity extends AppCompatActivity implements SurfaceHolder.C
 
                     configCamera();
                     startPreview();
-
-                    preview.setOnClickListener(new View.OnClickListener() {
-                        @Override
-                        public void onClick(View arg0) {
-                            camera.takePicture(shutterCallback, rawCallback, jpegCallback);
-                        }
-                    });
                 } catch (RuntimeException ex) {
                     //Toast.makeText(ctx, getString(R.string.camera_not_found), Toast.LENGTH_LONG).show();
                 }
@@ -122,12 +167,14 @@ public class CameraActivity extends AppCompatActivity implements SurfaceHolder.C
     }
 
     private void configCamera() {
-        setPreviewOrientation();
+        setDisplayOrientation();
         setCameraRotation();
         setAutoFocusMode();
+        setPictureSize();
+        setPreviewSize();
     }
 
-    private void setPreviewOrientation() {
+    private void setDisplayOrientation() {
         int rotation = getWindowManager().getDefaultDisplay().getRotation();
         int degrees = 0;
         switch (rotation) {
@@ -170,29 +217,66 @@ public class CameraActivity extends AppCompatActivity implements SurfaceHolder.C
         }
     }
 
-    private void startPreview() {
+    private void setPictureSize() {
+        List<Camera.Size> supportedPictureSizes = parameters.getSupportedPictureSizes();
+        int width = 0;
+        int height = 0;
+
+        int maxSize = 600000;
+        int minDiff = Integer.MAX_VALUE;
+        for (Camera.Size pictureSize : supportedPictureSizes) {
+            int size = pictureSize.width * pictureSize.height * 4;
+            if (size > maxSize) continue;
+            if (size <= maxSize) {
+                if (Math.abs(size - maxSize) < minDiff) {
+                    width = pictureSize.width;
+                    height = pictureSize.height;
+                    minDiff = Math.abs(size - maxSize);
+                }
+            }
+        }
+
+        if (width != 0 && height != 0) {
+            parameters.setPictureSize(width, height);
+        } else {
+            Camera.Size minPictureSize = supportedPictureSizes.get(0);
+            parameters.setPictureSize(minPictureSize.width, minPictureSize.height);
+        }
+        camera.setParameters(parameters);
+    }
+
+    private void setPreviewSize() {
+        List<Camera.Size> supportedPreviewSizes = parameters.getSupportedPreviewSizes();
         Camera.Size previewSize;
-        List<Camera.Size> supportPreviewSizes = parameters.getSupportedPreviewSizes();
 
         // We fit the aspect ratio of TextureView to the size of preview we picked.
         int orientation = getResources().getConfiguration().orientation;
         if (orientation == Configuration.ORIENTATION_LANDSCAPE) {
-            previewSize = getOptimalPreviewSize(supportPreviewSizes, previewWidth, previewHeight);
+            previewSize = getOptimalPreviewSize(supportedPreviewSizes, previewWidth, previewHeight);
             preview.setAspectRatio(previewSize.width, previewSize.height);
         } else {
-            previewSize = getOptimalPreviewSize(supportPreviewSizes, previewHeight, previewWidth);
+            previewSize = getOptimalPreviewSize(supportedPreviewSizes, previewHeight, previewWidth);
             preview.setAspectRatio(previewSize.height, previewSize.width);
         }
 
         parameters.setPreviewSize(previewSize.width, previewSize.height);
         camera.setParameters(parameters);
+    }
 
+    private void startPreview() {
         // The Surface has been created, acquire the camera and tell it where
         // to draw.
         try {
             if (camera != null) {
                 camera.setPreviewDisplay(holder);
                 camera.startPreview();
+
+                preview.setOnClickListener(new View.OnClickListener() {
+                    @Override
+                    public void onClick(View arg0) {
+                        camera.takePicture(shutterCallback, rawCallback, jpegCallback);
+                    }
+                });
             }
         } catch (IOException exception) {
             Log.e(TAG, "IOException caused by setPreviewDisplay()", exception);
@@ -205,11 +289,11 @@ public class CameraActivity extends AppCompatActivity implements SurfaceHolder.C
         }
     }
 
-    private void refreshGallery(File file) {
-        Intent mediaScanIntent = new Intent(Intent.ACTION_MEDIA_SCANNER_SCAN_FILE);
-        mediaScanIntent.setData(Uri.fromFile(file));
-        sendBroadcast(mediaScanIntent);
-    }
+//    private void refreshGallery(File file) {
+//        Intent mediaScanIntent = new Intent(Intent.ACTION_MEDIA_SCANNER_SCAN_FILE);
+//        mediaScanIntent.setData(Uri.fromFile(file));
+//        sendBroadcast(mediaScanIntent);
+//    }
 
     ShutterCallback shutterCallback = new ShutterCallback() {
         public void onShutter() {
@@ -228,15 +312,18 @@ public class CameraActivity extends AppCompatActivity implements SurfaceHolder.C
             preview.setOnClickListener(null);
 
             String storagePath = getExternalFilesDir(Environment.DIRECTORY_PICTURES).getAbsolutePath();
-            SaveImageTask saveImageTask = new SaveImageTask();
+//            Log.v(TAG, "storage path: " + storagePath);
+            saveImageTask = new SaveImageTask();
             saveImageTask.setListener(new SaveImageTask.OnSaveListener() {
                 @Override
                 public void onComplete(String imagePath) {
-                    if(imagePath != null) {
+                    if (imagePath != null) {
                         Intent intent = new Intent();
                         intent.putExtra("image_path", imagePath);
                         setResult(Activity.RESULT_OK, intent);
                         finish();
+
+                        TIME_LIMIT *= 2;
                     }
                 }
             });
@@ -296,6 +383,8 @@ public class CameraActivity extends AppCompatActivity implements SurfaceHolder.C
     public void onBackPressed() {
         super.onBackPressed();
         setResult(Activity.RESULT_CANCELED);
+
+        TIME_LIMIT *= 2;
     }
 
     @Override
@@ -332,9 +421,15 @@ public class CameraActivity extends AppCompatActivity implements SurfaceHolder.C
 
         @Override
         protected String doInBackground(byte[]... data) {
-            File storageDir = new File(String.valueOf(data[0]));
+            File storageDir;
+            try {
+                storageDir = new File(new String(data[0], "UTF-8"));
+            } catch (UnsupportedEncodingException e) {
+                e.printStackTrace();
+                return null;
+            }
 
-            deleteAllFiles(storageDir);
+            deleteAllFiles(storageDir); //Log.v(TAG, data[0].toString());
 
             FileOutputStream outStream = null;
             File outFile = null;
@@ -350,7 +445,7 @@ public class CameraActivity extends AppCompatActivity implements SurfaceHolder.C
             } catch (IOException e) {
                 e.printStackTrace();
             } finally {
-                if(outStream != null)
+                if (outStream != null)
                     try {
                         outStream.close();
                     } catch (IOException e) {
@@ -358,7 +453,7 @@ public class CameraActivity extends AppCompatActivity implements SurfaceHolder.C
                     }
             }
 
-            return outFile != null? outFile.getAbsolutePath() : null;
+            return outFile != null ? outFile.getAbsolutePath() : null;
         }
 
         @Override
@@ -367,7 +462,7 @@ public class CameraActivity extends AppCompatActivity implements SurfaceHolder.C
         }
 
         private void notifyListener(String imagePath) {
-            if(listener != null) {
+            if (listener != null) {
                 listener.onComplete(imagePath);
             }
         }
