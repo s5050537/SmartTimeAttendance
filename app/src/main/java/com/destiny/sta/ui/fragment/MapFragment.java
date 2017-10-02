@@ -14,6 +14,7 @@ import android.support.annotation.Nullable;
 import android.support.v4.app.ActivityCompat;
 import android.support.v4.app.Fragment;
 import android.support.v7.app.AppCompatActivity;
+import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.Menu;
 import android.view.MenuInflater;
@@ -247,7 +248,7 @@ public class MapFragment extends Fragment implements OnMapReadyCallback {
                         // Got last known location. In some rare situations this can be null.
                         if (location != null) {
                             if (currentLocation != null) {
-                                if (currentLocation.distanceTo(location) > 10) {
+                                if (currentLocation.distanceTo(location) > 5) {
                                     googleMap.clear();
                                 } else {
                                     return;
@@ -257,11 +258,17 @@ public class MapFragment extends Fragment implements OnMapReadyCallback {
 
                             LatLng currentLatLng = new LatLng(location.getLatitude(), location.getLongitude());
                             googleMap.addMarker(new MarkerOptions().position(currentLatLng).title("You are here!"));
-                            googleMap.animateCamera(CameraUpdateFactory.newLatLngZoom(currentLatLng, 16.0f));
+                            googleMap.animateCamera(CameraUpdateFactory.newLatLngZoom(currentLatLng, 18.0f)); //16.0f
 
                             LoginResponse user = loginCallback.getUser();
                             Double branchLatitude = user.getBranch().getLatitude();
                             Double branchLongitude = user.getBranch().getLongitude();
+//                            Double branchLatitude = 13.598178;
+//                            Double branchLongitude = 100.326855;
+                            Location branchLocation = new Location("branch");
+                            branchLocation.setLatitude(branchLatitude);
+                            branchLocation.setLongitude(branchLongitude);
+                            Log.v(TAG, "branch latitude: " + branchLatitude + " longitude: " + branchLongitude);
 
                             Circle circle = googleMap.addCircle(new CircleOptions()
                                     .center(new LatLng(branchLatitude, branchLongitude))
@@ -272,15 +279,17 @@ public class MapFragment extends Fragment implements OnMapReadyCallback {
                             PolylineOptions line =
                                     new PolylineOptions().add(currentLatLng,
                                             new LatLng(branchLatitude, branchLongitude))
-                                            .width(4).color(Color.RED);
+                                            .width(3).color(Color.RED);
 
                             googleMap.addPolyline(line);
 
-                            float[] results = new float[1];
-                            Location.distanceBetween(location.getLatitude(), location.getLongitude(),
-                                    branchLatitude, branchLongitude, results);
+//                            float[] results = new float[1];
+//                            Location.distanceBetween(location.getLatitude(), location.getLongitude(),
+//                                    branchLatitude, branchLongitude, results);
+                            float distance = location.distanceTo(branchLocation);
+                            Log.v(TAG, "distance: " + distance);
 
-                            if (results[0] <= MAX_DISTANCE) {
+                            if (distance <= MAX_DISTANCE) {
                                 if (!submitButton.isEnabled()) submitButton.setEnabled(true);
                             } else {
                                 if (submitButton.isEnabled()) submitButton.setEnabled(false);

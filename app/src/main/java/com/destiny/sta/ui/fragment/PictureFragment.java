@@ -181,7 +181,6 @@ public class PictureFragment extends Fragment {
                 } else {
                     // permission denied, boo! Disable the
                     // functionality that depends on this permission.
-
                 }
                 break;
             }
