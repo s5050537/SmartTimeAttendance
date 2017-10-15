@@ -2,6 +2,7 @@ package com.destiny.sta.ui.activity;
 
 import android.app.Activity;
 import android.content.res.Configuration;
+import android.graphics.PixelFormat;
 import android.os.Handler;
 import android.os.SystemClock;
 import android.support.v7.app.AppCompatActivity;
@@ -11,9 +12,13 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.Callable;
+import java.util.concurrent.TimeUnit;
 
 import android.content.Intent;
 import android.hardware.Camera;
@@ -33,8 +38,15 @@ import android.view.WindowManager;
 import com.destiny.sta.R;
 import com.destiny.sta.view.Preview;
 
-import static com.destiny.sta.ui.activity.MainActivity.TIME_LIMIT;
-import static com.destiny.sta.ui.activity.MainActivity.timer;
+import io.reactivex.Observable;
+import io.reactivex.SingleObserver;
+import io.reactivex.android.schedulers.AndroidSchedulers;
+import io.reactivex.annotations.NonNull;
+import io.reactivex.disposables.CompositeDisposable;
+import io.reactivex.disposables.Disposable;
+import io.reactivex.functions.Function;
+import io.reactivex.observers.DisposableObserver;
+import io.reactivex.schedulers.Schedulers;
 
 /**
  * Created by Bobo on 8/29/2017.
@@ -44,6 +56,11 @@ public class CameraActivity extends AppCompatActivity implements SurfaceHolder.C
 
     private static final String TAG = CameraActivity.class.getSimpleName();
 
+    private final CompositeDisposable disposables = new CompositeDisposable();
+
+    private final int DEFAULT_TIME_LEFT = 60;
+    private int timeLeft = DEFAULT_TIME_LEFT;
+
     private Camera camera;
     private Camera.CameraInfo info;
     private Camera.Parameters parameters;
@@ -52,11 +69,6 @@ public class CameraActivity extends AppCompatActivity implements SurfaceHolder.C
     private SurfaceHolder holder;
     private int previewWidth = 0;
     private int previewHeight = 0;
-
-    private SaveImageTask saveImageTask = null;
-
-    private long inactiveTime = 0;
-    private Handler handler;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -73,8 +85,6 @@ public class CameraActivity extends AppCompatActivity implements SurfaceHolder.C
 //        preview = new Preview(this, surfaceView);
 //        preview.setLayoutParams(new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT));
 //        preview.setKeepScreenOn(true);
-
-        handler = new Handler();
     }
 
     @Override
@@ -84,7 +94,11 @@ public class CameraActivity extends AppCompatActivity implements SurfaceHolder.C
             openCamera();
         }
 
-        startTimer();
+        if (timeLeft == 0) {
+            setTimer(timeLeft, true);
+        } else {
+            setTimer(timeLeft = DEFAULT_TIME_LEFT, true);
+        }
     }
 
     @Override
@@ -92,44 +106,56 @@ public class CameraActivity extends AppCompatActivity implements SurfaceHolder.C
         super.onPause();
         closeCamera();
 
-        if (saveImageTask != null) {
-            saveImageTask.setListener(null);
-        }
-
-        stopTimer();
-    }
-
-    private void startTimer() {
-        if (inactiveTime != 0) {
-            long now = System.currentTimeMillis();
-            if (now - inactiveTime > TIME_LIMIT) {
-                setResult(Activity.RESULT_CANCELED);
-                finish();
-            }
-        }
-
-        inactiveTime = System.currentTimeMillis();
-        handler.postAtTime(new Runnable() {
-            @Override
-            public void run() {
-                setResult(Activity.RESULT_CANCELED);
-                finish();
-            }
-        }, timer, SystemClock.uptimeMillis() + TIME_LIMIT);
-    }
-
-    private void stopTimer() {
-        handler.removeCallbacksAndMessages(timer);
+        disposables.clear();
+        setTimer(timeLeft, false);
     }
 
     @Override
-    public boolean dispatchTouchEvent(MotionEvent ev) {
-        if (ev.getAction() == MotionEvent.ACTION_UP) {
-            stopTimer();
-            startTimer();
-        }
+    public void onUserInteraction() {
+        super.onUserInteraction();
+        setTimer(timeLeft = DEFAULT_TIME_LEFT, true);
+    }
 
-        return super.dispatchTouchEvent(ev);
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        setTimer(0, false);
+    }
+
+    private void setTimer(final int timeLimit, final boolean trigger) {
+        Observable<Long> observable;
+        if (timeLimit == 0) {
+            observable = Observable.just(0L);
+        } else {
+            observable = Observable.interval(1, TimeUnit.SECONDS);
+        }
+        disposables.clear();
+        disposables.add(observable.subscribeOn(Schedulers.io())
+                .observeOn(AndroidSchedulers.mainThread())
+                .subscribeWith(new DisposableObserver<Long>() {
+                    @Override
+                    public void onNext(@NonNull Long seconds) {
+                        if (seconds == timeLimit) {
+                            if (trigger) {
+                                finish();
+                                timeLeft = DEFAULT_TIME_LEFT;
+                            }
+                            disposables.clear();
+                            return;
+                        }
+                        timeLeft--;
+                    }
+
+                    @Override
+                    public void onError(@NonNull Throwable e) {
+
+                    }
+
+                    @Override
+                    public void onComplete() {
+
+                    }
+                }));
     }
 
     private void openCamera() {
@@ -222,10 +248,11 @@ public class CameraActivity extends AppCompatActivity implements SurfaceHolder.C
         int width = 0;
         int height = 0;
 
-        int maxSize = 600000;
+        int maxSize = 1000000;
         int minDiff = Integer.MAX_VALUE;
         for (Camera.Size pictureSize : supportedPictureSizes) {
-            int size = pictureSize.width * pictureSize.height * 4;
+            int size = (int) (pictureSize.width * pictureSize.height * (4 / 8f));
+//            Log.v(TAG, "picture width: " + pictureSize.width + " height: " + pictureSize.height + " size: " + size / 1000f + "KB");
             if (size > maxSize) continue;
             if (size <= maxSize) {
                 if (Math.abs(size - maxSize) < minDiff) {
@@ -235,7 +262,7 @@ public class CameraActivity extends AppCompatActivity implements SurfaceHolder.C
                 }
             }
         }
-
+//        Log.v(TAG, "selected picture width: " + width + " height: " + height);
         if (width != 0 && height != 0) {
             parameters.setPictureSize(width, height);
         } else {
@@ -247,18 +274,23 @@ public class CameraActivity extends AppCompatActivity implements SurfaceHolder.C
 
     private void setPreviewSize() {
         List<Camera.Size> supportedPreviewSizes = parameters.getSupportedPreviewSizes();
+        supportedPreviewSizes = sortSizes(supportedPreviewSizes);
         Camera.Size previewSize;
 
         // We fit the aspect ratio of TextureView to the size of preview we picked.
         int orientation = getResources().getConfiguration().orientation;
         if (orientation == Configuration.ORIENTATION_LANDSCAPE) {
-            previewSize = getOptimalPreviewSize(supportedPreviewSizes, previewWidth, previewHeight);
+//            previewSize = getOptimalPreviewSize(supportedPreviewSizes, previewWidth, previewHeight);
+            previewSize = chooseOptimalSize(supportedPreviewSizes, previewWidth, previewHeight, previewWidth, previewHeight,
+                    supportedPreviewSizes.get(supportedPreviewSizes.size() - 1));
             preview.setAspectRatio(previewSize.width, previewSize.height);
         } else {
-            previewSize = getOptimalPreviewSize(supportedPreviewSizes, previewHeight, previewWidth);
+//            previewSize = getOptimalPreviewSize(supportedPreviewSizes, previewHeight, previewWidth);
+            previewSize = chooseOptimalSize(supportedPreviewSizes, previewHeight, previewWidth, previewHeight, previewWidth,
+                    supportedPreviewSizes.get(supportedPreviewSizes.size() - 1));
             preview.setAspectRatio(previewSize.height, previewSize.width);
         }
-
+        Log.v(TAG, "preview width: " + previewSize.width + " height: " + previewSize.height);
         parameters.setPreviewSize(previewSize.width, previewSize.height);
         camera.setParameters(parameters);
     }
@@ -308,27 +340,70 @@ public class CameraActivity extends AppCompatActivity implements SurfaceHolder.C
     };
 
     PictureCallback jpegCallback = new PictureCallback() {
-        public void onPictureTaken(byte[] data, Camera camera) {
+        public void onPictureTaken(final byte[] data, Camera camera) {
             preview.setOnClickListener(null);
 
-            String storagePath = getExternalFilesDir(Environment.DIRECTORY_PICTURES).getAbsolutePath();
-//            Log.v(TAG, "storage path: " + storagePath);
-            saveImageTask = new SaveImageTask();
-            saveImageTask.setListener(new SaveImageTask.OnSaveListener() {
+            Observable<File> observable = Observable.fromCallable(new Callable<File>() {
                 @Override
-                public void onComplete(String imagePath) {
-                    if (imagePath != null) {
-                        Intent intent = new Intent();
-                        intent.putExtra("image_path", imagePath);
-                        setResult(Activity.RESULT_OK, intent);
-                        finish();
+                public File call() throws Exception {
+                    deleteAllFiles();
 
-                        TIME_LIMIT *= 2;
+                    FileOutputStream outStream = null;
+                    File outFile = null;
+                    try {
+                        outFile = createImageFile();
+
+                        outStream = new FileOutputStream(outFile);
+                        outStream.write(data);
+                        outStream.flush();
+                        Log.d(TAG, "onPictureTaken - wrote bytes: " + data.length + " to " + outFile.getAbsolutePath());
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    } finally {
+                        if (outStream != null)
+                            try {
+                                outStream.close();
+                            } catch (IOException e) {
+                                e.printStackTrace();
+                            }
                     }
+
+                    return outFile;
                 }
             });
-            saveImageTask.execute(storagePath.getBytes(), data);
-            Log.d(TAG, "onPictureTaken - jpeg");
+
+            disposables.add(observable
+                    // Run on a background thread
+                    .subscribeOn(Schedulers.io())
+                    // Be notified on the main thread
+                    .observeOn(AndroidSchedulers.mainThread())
+                    .map(new Function<File, String>() {
+                        @Override
+                        public String apply(File file) throws Exception {
+                            return file == null ? null : file.getAbsolutePath();
+                        }
+                    })
+                    .subscribeWith(new DisposableObserver<String>() {
+                        @Override
+                        public void onNext(@NonNull String imagePath) {
+                            if (imagePath != null) {
+                                Intent intent = new Intent();
+                                intent.putExtra("image_path", imagePath);
+                                setResult(Activity.RESULT_OK, intent);
+                                finish();
+                            }
+                        }
+
+                        @Override
+                        public void onError(@NonNull Throwable e) {
+
+                        }
+
+                        @Override
+                        public void onComplete() {
+                            Log.d(TAG, "onPictureTaken - jpeg");
+                        }
+                    }));
         }
     };
 
@@ -379,12 +454,87 @@ public class CameraActivity extends AppCompatActivity implements SurfaceHolder.C
         return optimalSize;
     }
 
+    /**
+     * Given {@code choices} of {@code Size}s supported by a camera, choose the smallest one that
+     * is at least as large as the respective texture view size, and that is at most as large as the
+     * respective max size, and whose aspect ratio matches with the specified value. If such size
+     * doesn't exist, choose the largest one that is at most as large as the respective max size,
+     * and whose aspect ratio matches with the specified value.
+     *
+     * @param choices           The list of sizes that the camera supports for the intended output
+     *                          class
+     * @param textureViewWidth  The width of the texture view relative to sensor coordinate
+     * @param textureViewHeight The height of the texture view relative to sensor coordinate
+     * @param maxWidth          The maximum width that can be chosen
+     * @param maxHeight         The maximum height that can be chosen
+     * @param aspectRatio       The aspect ratio
+     * @return The optimal {@code Size}, or an arbitrary one if none were big enough
+     */
+    private static Camera.Size chooseOptimalSize(List<Camera.Size> choices, int textureViewWidth,
+                                                 int textureViewHeight, int maxWidth, int maxHeight, Camera.Size aspectRatio) {
+        Log.v(TAG, "aspect ratio width: " + aspectRatio.width + " height: " + aspectRatio.height);
+
+        // Collect the supported resolutions that are at least as big as the preview Surface
+        List<Camera.Size> bigEnough = new ArrayList<>();
+        // Collect the supported resolutions that are smaller than the preview Surface
+        List<Camera.Size> notBigEnough = new ArrayList<>();
+        int w = aspectRatio.width;
+        int h = aspectRatio.height;
+        for (Camera.Size option : choices) {
+            Log.v(TAG, "supported preview width: " + option.width + " height: " + option.height);
+            if (option.width <= maxWidth && option.height <= maxHeight &&
+                    option.height == option.width * h / w) {
+                if (option.width >= textureViewWidth &&
+                        option.height >= textureViewHeight) {
+                    bigEnough.add(option);
+                } else {
+                    notBigEnough.add(option);
+                }
+            }
+        }
+
+        // Pick the smallest of those big enough. If there is no one big enough, pick the
+        // largest of those not big enough.
+        if (bigEnough.size() > 0) {
+            return bigEnough.get(0);
+        } else if (notBigEnough.size() > 0) {
+            return notBigEnough.get(notBigEnough.size() - 1);
+        } else {
+            Log.e(TAG, "Couldn't find any suitable preview size");
+            return choices.get(0);
+        }
+    }
+
+    private List<Camera.Size> sortSizes(List<Camera.Size> sizes) {
+        if (sizes.size() > 1) {
+            int sizeCount = sizes.size();
+            for (int i = sizeCount - 1; i > 0; i--) {
+                for (int j = 0; j < i; j++) {
+                    int currentWidth = sizes.get(j).width;
+                    int currentHeight = sizes.get(j).height;
+                    int nextWidth = sizes.get(j + 1).width;
+                    int nextHeight = sizes.get(j + 1).height;
+
+                    if (currentWidth > nextWidth) {
+                        Camera.Size size = sizes.remove(j);
+                        sizes.add(j + 1, size);
+                    } else if (currentWidth == nextWidth) {
+                        if (currentHeight > nextHeight) {
+                            Camera.Size size = sizes.remove(j);
+                            sizes.add(j + 1, size);
+                        }
+                    }
+                }
+            }
+        }
+
+        return sizes;
+    }
+
     @Override
     public void onBackPressed() {
         super.onBackPressed();
         setResult(Activity.RESULT_CANCELED);
-
-        TIME_LIMIT *= 2;
     }
 
     @Override
@@ -395,7 +545,7 @@ public class CameraActivity extends AppCompatActivity implements SurfaceHolder.C
             previewWidth = width;
             previewHeight = height;
 
-            Log.v(TAG, "preview width: " + width + " height: " + height);
+            Log.v(TAG, "holder width: " + width + " height: " + height);
         }
 
         openCamera();
@@ -411,88 +561,23 @@ public class CameraActivity extends AppCompatActivity implements SurfaceHolder.C
         closeCamera();
     }
 
-    private static class SaveImageTask extends AsyncTask<byte[], Void, String> {
+    private File createImageFile() throws IOException {
+        // Create an image file name
+        String timeStamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date());
+        String imageFileName = "JPEG_" + timeStamp + "_";
+        File storageDir = getExternalFilesDir(Environment.DIRECTORY_PICTURES);
+        return File.createTempFile(
+                imageFileName,  /* prefix */
+                ".jpg",         /* suffix */
+                storageDir      /* directory */
+        );
+    }
 
-        interface OnSaveListener {
-            void onComplete(String imagePath);
-        }
-
-        OnSaveListener listener = null;
-
-        @Override
-        protected String doInBackground(byte[]... data) {
-            File storageDir;
-            try {
-                storageDir = new File(new String(data[0], "UTF-8"));
-            } catch (UnsupportedEncodingException e) {
-                e.printStackTrace();
-                return null;
-            }
-
-            deleteAllFiles(storageDir); //Log.v(TAG, data[0].toString());
-
-            FileOutputStream outStream = null;
-            File outFile = null;
-            try {
-                outFile = createImageFile(storageDir);
-
-                outStream = new FileOutputStream(outFile);
-                outStream.write(data[1]);
-                outStream.flush();
-//                outStream.close();
-
-                Log.d(TAG, "onPictureTaken - wrote bytes: " + data.length + " to " + outFile.getAbsolutePath());
-            } catch (IOException e) {
-                e.printStackTrace();
-            } finally {
-                if (outStream != null)
-                    try {
-                        outStream.close();
-                    } catch (IOException e) {
-                        e.printStackTrace();
-                    }
-            }
-
-            return outFile != null ? outFile.getAbsolutePath() : null;
-        }
-
-        @Override
-        protected void onPostExecute(String imagePath) {
-            notifyListener(imagePath);
-        }
-
-        private void notifyListener(String imagePath) {
-            if (listener != null) {
-                listener.onComplete(imagePath);
-            }
-        }
-
-        void setListener(OnSaveListener listener) {
-            this.listener = listener;
-        }
-
-        private File createImageFile(File storageDir) throws IOException {
-            // Create an image file name
-            String timeStamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date());
-            String imageFileName = "JPEG_" + timeStamp + "_";
-//            File storageDir = getExternalFilesDir(Environment.DIRECTORY_PICTURES);
-            return File.createTempFile(
-                    imageFileName,  /* prefix */
-                    ".jpg",         /* suffix */
-                    storageDir      /* directory */
-            );
-        }
-
-        private void deleteAllFiles(File storageDir) {
-//            File storageDir = getExternalFilesDir(Environment.DIRECTORY_PICTURES);
-            if (storageDir != null && storageDir.isDirectory()) {
-//                String[] children = dir.list();
-//                for (int i = 0; i < children.length; i++) {
-//                    new File(dir, children[i]).delete();
-//                }
-                for (String child : storageDir.list()) {
-                    boolean deleted = new File(storageDir, child).delete();
-                }
+    private void deleteAllFiles() {
+        File storageDir = getExternalFilesDir(Environment.DIRECTORY_PICTURES);
+        if (storageDir != null && storageDir.isDirectory()) {
+            for (String child : storageDir.list()) {
+                boolean deleted = new File(storageDir, child).delete();
             }
         }
     }

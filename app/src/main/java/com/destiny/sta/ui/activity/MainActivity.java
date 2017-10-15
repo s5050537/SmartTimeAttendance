@@ -2,6 +2,7 @@ package com.destiny.sta.ui.activity;
 
 import android.content.DialogInterface;
 import android.location.Location;
+import android.nfc.Tag;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.SystemClock;
@@ -25,8 +26,20 @@ import com.destiny.sta.ui.fragment.LoginFragment;
 import com.destiny.sta.ui.fragment.MapFragment;
 import com.destiny.sta.ui.fragment.PictureFragment;
 
-import java.io.File;
+import org.reactivestreams.Subscriber;
+import org.reactivestreams.Subscription;
 
+import java.io.File;
+import java.util.concurrent.TimeUnit;
+
+import io.reactivex.Observable;
+import io.reactivex.Observer;
+import io.reactivex.android.schedulers.AndroidSchedulers;
+import io.reactivex.annotations.NonNull;
+import io.reactivex.disposables.CompositeDisposable;
+import io.reactivex.disposables.Disposable;
+import io.reactivex.observers.DisposableObserver;
+import io.reactivex.schedulers.Schedulers;
 import okhttp3.MediaType;
 import okhttp3.MultipartBody;
 import okhttp3.RequestBody;
@@ -40,16 +53,14 @@ import retrofit2.Response;
 
 public class MainActivity extends AppCompatActivity implements MapFragment.LocationCallback, PictureFragment.ImageCallback, LoginFragment.LoginCallback {
 
-    private StaService staService;
+    private final CompositeDisposable disposables = new CompositeDisposable();
+
+    private final int DEFAULT_TIME_LEFT = 60;
+    private int timeLeft = DEFAULT_TIME_LEFT;
 
     private LoginResponse user = null;
     private Location location = null;
     private String imagePath = null;
-
-    public static final String timer = "timer";
-    private long inactiveTime = 0;
-    public static long TIME_LIMIT = 60000;
-    private Handler handler;
 
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
@@ -61,8 +72,6 @@ public class MainActivity extends AppCompatActivity implements MapFragment.Locat
 //            Intent intent = new Intent(this, CameraActivity.class);
 //            startActivityForResult(intent, REQUEST_IMAGE_CAPTURE);
         }
-
-        handler = new Handler();
     }
 
     @Override
@@ -73,48 +82,65 @@ public class MainActivity extends AppCompatActivity implements MapFragment.Locat
     @Override
     protected void onResume() {
         super.onResume();
-        startTimer();
+        if(timeLeft == 0) {
+            setTimer(timeLeft, true);
+        } else {
+            setTimer(timeLeft = DEFAULT_TIME_LEFT, true);
+        }
     }
 
     @Override
     protected void onPause() {
         super.onPause();
-        stopTimer();
+        setTimer(timeLeft, false);
     }
 
     @Override
-    public boolean dispatchTouchEvent(MotionEvent ev) {
-        if (ev.getAction() == MotionEvent.ACTION_UP) {
-            stopTimer();
-            startTimer();
-        }
-
-        return super.dispatchTouchEvent(ev);
+    public void onUserInteraction() {
+        super.onUserInteraction();
+        setTimer(timeLeft = DEFAULT_TIME_LEFT, true);
     }
 
-    private void startTimer() {
-        if (inactiveTime != 0) {
-            long now = System.currentTimeMillis();
-            Log.v("MainActivity", "time limit: " + TIME_LIMIT);
-            Log.v("MainActivity", "duration: " + (now - inactiveTime));
-            if (now - inactiveTime > TIME_LIMIT) {
-                redirectToLogin();
-            } else {
-                TIME_LIMIT = 60000;
-            }
-        }
-
-        inactiveTime = System.currentTimeMillis();
-        handler.postAtTime(new Runnable() {
-            @Override
-            public void run() {
-                redirectToLogin();
-            }
-        }, timer, SystemClock.uptimeMillis() + TIME_LIMIT);
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        setTimer(0, false);
     }
 
-    private void stopTimer() {
-        handler.removeCallbacksAndMessages(timer);
+    private void setTimer(final int timeLimit, final boolean trigger) {
+        Observable<Long> observable;
+        if (timeLimit == 0) {
+            observable = Observable.just(0L);
+        } else {
+            observable = Observable.interval(1, TimeUnit.SECONDS);
+        }
+        disposables.clear();
+        disposables.add(observable.subscribeOn(Schedulers.io())
+                .observeOn(AndroidSchedulers.mainThread())
+                .subscribeWith(new DisposableObserver<Long>() {
+                    @Override
+                    public void onNext(@NonNull Long seconds) {
+                        if (seconds == timeLimit) {
+                            if (trigger) {
+                                redirectToLogin();
+                                timeLeft = DEFAULT_TIME_LEFT;
+                            }
+                            disposables.clear();
+                            return;
+                        }
+                        timeLeft--;
+                    }
+
+                    @Override
+                    public void onError(@NonNull Throwable e) {
+
+                    }
+
+                    @Override
+                    public void onComplete() {
+
+                    }
+                }));
     }
 
     private void redirectToLogin() {
@@ -171,7 +197,7 @@ public class MainActivity extends AppCompatActivity implements MapFragment.Locat
         RequestBody longitude = RequestBody.create(MultipartBody.FORM, attendance.getLongitude());
         MultipartBody.Part body = MultipartBody.Part.createFormData("fileToUpload", image.getName(), requestImage);
 
-        staService = ServiceGenerator.createService(StaService.class);
+        StaService staService = ServiceGenerator.createService(StaService.class);
 
         Call<AttendanceResponse> call = staService.recordAttendance(username, latitude, longitude, body);
         call.enqueue(new Callback<AttendanceResponse>() {

@@ -19,6 +19,8 @@ public class LoginResponse {
         private String name;
         private Double latitude;
         private Double longitude;
+        private String opening_time;
+        private String closing_time;
 
         public String getCode() {
             return code;
@@ -50,6 +52,22 @@ public class LoginResponse {
 
         public void setLongitude(Double longitude) {
             this.longitude = longitude;
+        }
+
+        public String getOpeningTime() {
+            return opening_time;
+        }
+
+        public void setOpeningTime(String opening_time) {
+            this.opening_time = opening_time;
+        }
+
+        public String getClosingTime() {
+            return closing_time;
+        }
+
+        public void setClosingTime(String closing_time) {
+            this.closing_time = closing_time;
         }
     }
 
